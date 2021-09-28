@@ -57,7 +57,7 @@ module Glicko =
         let qSquared = square q
 
         let sigma r =
-            let sigma' r (rj, rdj, _) =
+            let sigma' r (_, rj, rdj, _) =
                 let gRdj = g rdj |> square
                 let e' = e r rj rdj
                 gRdj * e' * (1. - e')
@@ -72,7 +72,7 @@ module Glicko =
         let rdSquared = float rd |> square
 
         let sigma r =
-            let sigma' r (rj, rdj, sj) =
+            let sigma' r (_, rj, rdj, sj) =
                 let sj' =
                     match sj with
                     | Won -> 1.

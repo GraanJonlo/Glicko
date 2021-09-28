@@ -2,6 +2,7 @@ module Tests
 
 open System
 
+open NodaTime
 open Xunit
 open FsUnit.Xunit
 
@@ -54,9 +55,9 @@ let ``Calculate dSquared`` () =
     let r = Glicko.Rating 1500
 
     let games =
-        [ Glicko.Rating 1400, Glicko.RD 30, Glicko.Outcome.Won
-          Glicko.Rating 1550, Glicko.RD 100, Glicko.Outcome.Lost
-          Glicko.Rating 1700, Glicko.RD 300, Glicko.Outcome.Lost ]
+        [ "", Glicko.Rating 1400, Glicko.RD 30, Glicko.Outcome.Won
+          "", Glicko.Rating 1550, Glicko.RD 100, Glicko.Outcome.Lost
+          "", Glicko.Rating 1700, Glicko.RD 300, Glicko.Outcome.Lost ]
 
     Glicko.dSquared r games
     |> sqrt
@@ -68,9 +69,9 @@ let ``Calculate post period r`` () =
     let rd = Glicko.RD 200
 
     let games =
-        [ Glicko.Rating 1400, Glicko.RD 30, Glicko.Outcome.Won
-          Glicko.Rating 1550, Glicko.RD 100, Glicko.Outcome.Lost
-          Glicko.Rating 1700, Glicko.RD 300, Glicko.Outcome.Lost ]
+        [ "", Glicko.Rating 1400, Glicko.RD 30, Glicko.Outcome.Won
+          "", Glicko.Rating 1550, Glicko.RD 100, Glicko.Outcome.Lost
+          "", Glicko.Rating 1700, Glicko.RD 300, Glicko.Outcome.Lost ]
 
     Glicko.newR r rd games
     |> should equal (Glicko.Rating 1464)
@@ -81,9 +82,9 @@ let ``Calculate post period rd`` () =
     let rd = Glicko.RD 200
 
     let games =
-        [ Glicko.Rating 1400, Glicko.RD 30, Glicko.Outcome.Won
-          Glicko.Rating 1550, Glicko.RD 100, Glicko.Outcome.Lost
-          Glicko.Rating 1700, Glicko.RD 300, Glicko.Outcome.Lost ]
+        [ "", Glicko.Rating 1400, Glicko.RD 30, Glicko.Outcome.Won
+          "", Glicko.Rating 1550, Glicko.RD 100, Glicko.Outcome.Lost
+          "", Glicko.Rating 1700, Glicko.RD 300, Glicko.Outcome.Lost ]
 
     Glicko.newRd r rd games
     |> should equal (Glicko.RD 151)
@@ -105,3 +106,35 @@ let ``Calculate rating interval`` () =
 
     Glicko.interval r rd
     |> should equal (Glicko.Rating 1441, Glicko.Rating 1559)
+
+[<Fact>]
+let ``Calculate player state at date`` () =
+    let records =
+        [ LocalDate(2021, 9, 29), [ "Alice", Glicko.Rating 1375, Glicko.RD 30, Glicko.Outcome.Draw ]
+          LocalDate(2021, 9, 28),
+          [ "Alice", Glicko.Rating 1400, Glicko.RD 30, Glicko.Outcome.Won
+            "Eve", Glicko.Rating 1550, Glicko.RD 100, Glicko.Outcome.Lost
+            "Tony", Glicko.Rating 1700, Glicko.RD 300, Glicko.Outcome.Lost ]
+          LocalDate(2021, 9, 27), [] ]
+
+    let calcPlayerState newPlayerRating newPlayerRd (date: LocalDate) records =
+        let rec calcPlayerState' r0 rd0 records =
+            match records with
+            | (_, games) :: tail -> calcPlayerState' (Glicko.newR r0 rd0 games) (Glicko.newRd r0 rd0 games) tail
+            | [] -> (r0, rd0)
+
+        List.skipWhile (fun (d, _) -> d >= date) records
+        |> List.rev
+        |> calcPlayerState' newPlayerRating newPlayerRd
+
+    let resultsAt09_28 =
+        calcPlayerState (Glicko.Rating 1500) (Glicko.RD 350) (LocalDate(2021, 9, 28)) records
+
+    let resultsAt09_29 =
+        calcPlayerState (Glicko.Rating 1500) (Glicko.RD 350) (LocalDate(2021, 9, 29)) records
+
+    resultsAt09_28
+    |> should equal (Glicko.Rating 1500, Glicko.RD 350)
+
+    resultsAt09_29
+    |> should equal (Glicko.Rating 1442, Glicko.RD 193)
