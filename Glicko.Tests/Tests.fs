@@ -117,24 +117,8 @@ let ``Calculate player state at date`` () =
             "Tony", Glicko.Rating 1700, Glicko.RD 300, Glicko.Outcome.Lost ]
           LocalDate(2021, 9, 27), [] ]
 
-    let calcPlayerState newPlayerRating newPlayerRd (date: LocalDate) records =
-        let rec calcPlayerState' r0 rd0 records =
-            match records with
-            | (_, games) :: tail -> calcPlayerState' (Glicko.newR r0 rd0 games) (Glicko.newRd r0 rd0 games) tail
-            | [] -> (r0, rd0)
-
-        List.skipWhile (fun (d, _) -> d >= date) records
-        |> List.rev
-        |> calcPlayerState' newPlayerRating newPlayerRd
-
-    let resultsAt09_28 =
-        calcPlayerState (Glicko.Rating 1500) (Glicko.RD 350) (LocalDate(2021, 9, 28)) records
-
-    let resultsAt09_29 =
-        calcPlayerState (Glicko.Rating 1500) (Glicko.RD 350) (LocalDate(2021, 9, 29)) records
-
-    resultsAt09_28
+    Glicko.calcPlayerState (Glicko.Rating 1500) (Glicko.RD 350) (LocalDate(2021, 9, 28)) records
     |> should equal (Glicko.Rating 1500, Glicko.RD 350)
 
-    resultsAt09_29
+    Glicko.calcPlayerState (Glicko.Rating 1500) (Glicko.RD 350) (LocalDate(2021, 9, 29)) records
     |> should equal (Glicko.Rating 1442, Glicko.RD 193)

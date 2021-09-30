@@ -3,6 +3,8 @@ namespace Glicko
 module Glicko =
     open System
 
+    open NodaTime
+
     let (><) f x y = f y x // flip operator
 
     let roundOff (x: float) =
@@ -129,3 +131,13 @@ module Glicko =
             |> Rating
 
         (lower, upper)
+
+    let calcPlayerState newPlayerRating newPlayerRd (date: LocalDate) records =
+        let rec calcPlayerState' r0 rd0 records =
+            match records with
+            | (_, games) :: tail -> calcPlayerState' (newR r0 rd0 games) (newRd r0 rd0 games) tail
+            | [] -> (r0, rd0)
+
+        List.skipWhile (fun (d, _) -> d >= date) records
+        |> List.rev
+        |> calcPlayerState' newPlayerRating newPlayerRd
