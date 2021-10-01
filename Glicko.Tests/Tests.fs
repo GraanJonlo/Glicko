@@ -12,7 +12,7 @@ open Glicko
 let ``Calculate c`` () =
     let newPlayerRD = Glicko.RD 350
     let typicalPlayerRD = Glicko.RD 50
-    let timeToBaseUncertainty = Glicko.RatingPeriod 100
+    let timeToBaseUncertainty = 100
 
     Glicko.c newPlayerRD typicalPlayerRD timeToBaseUncertainty
     |> should (equalWithin 0.01) 34.64
@@ -21,11 +21,11 @@ let ``Calculate c`` () =
 let ``Determine new RD from time passing`` () =
     let newPlayerRD = Glicko.RD 350
     let typicalRD = Glicko.RD 50
-    let timeToBaseUncertainty = Glicko.RatingPeriod 100
-    let elapsedTime = Glicko.RatingPeriod 10
+    let daysToInitialRD = 100
+    let elapsedDays = 10
     let rd0 = Glicko.RD 200
 
-    Glicko.updateRD newPlayerRD typicalRD timeToBaseUncertainty elapsedTime rd0
+    Glicko.updateRD newPlayerRD typicalRD daysToInitialRD elapsedDays rd0
     |> should equal (Glicko.RD 228)
 
 [<Fact>]
@@ -114,11 +114,85 @@ let ``Calculate player state at date`` () =
           LocalDate(2021, 9, 28),
           [ "Alice", Glicko.Rating 1400, Glicko.RD 30, Glicko.Outcome.Won
             "Eve", Glicko.Rating 1550, Glicko.RD 100, Glicko.Outcome.Lost
-            "Tony", Glicko.Rating 1700, Glicko.RD 300, Glicko.Outcome.Lost ]
-          LocalDate(2021, 9, 27), [] ]
+            "Tony", Glicko.Rating 1700, Glicko.RD 300, Glicko.Outcome.Lost ] ]
 
-    Glicko.calcPlayerState (Glicko.Rating 1500) (Glicko.RD 350) (LocalDate(2021, 9, 28)) records
+    Glicko.calcPlayerState (Glicko.Rating 1500) (Glicko.RD 350) (Glicko.RD 50) 100 (LocalDate(2021, 9, 28)) records
     |> should equal (Glicko.Rating 1500, Glicko.RD 350)
 
-    Glicko.calcPlayerState (Glicko.Rating 1500) (Glicko.RD 350) (LocalDate(2021, 9, 29)) records
-    |> should equal (Glicko.Rating 1442, Glicko.RD 193)
+    Glicko.calcPlayerState (Glicko.Rating 1500) (Glicko.RD 350) (Glicko.RD 50) 100 (LocalDate(2021, 9, 29)) records
+    |> should equal (Glicko.Rating 1442, Glicko.RD 196)
+
+    Glicko.calcPlayerState (Glicko.Rating 1500) (Glicko.RD 350) (Glicko.RD 50) 100 (LocalDate(2021, 9, 30)) records
+    |> should equal (Glicko.Rating 1426, Glicko.RD 173)
+
+[<Fact>]
+let ``Calculate player state at date 2`` () =
+    let records =
+        [ LocalDate(2021, 9, 28), [ "Alice", Glicko.Rating 1500, Glicko.RD 350, Glicko.Outcome.Won ] ]
+
+    Glicko.calcPlayerState (Glicko.Rating 1500) (Glicko.RD 350) (Glicko.RD 50) 100 (LocalDate(2021, 9, 29)) records
+    |> should equal (Glicko.Rating 1662, Glicko.RD 292)
+
+[<Fact>]
+let ``Foo`` () =
+    let tournament = Map.empty
+
+    let add player1 player2 (date: LocalDate) outcome tournament =
+        let p1Records =
+            match Map.tryFind player1 tournament with
+            | Some x -> x
+            | None -> List.empty
+
+        let p2Records =
+            match Map.tryFind player2 tournament with
+            | Some x -> x
+            | None -> List.empty
+
+        let (p1Rating, p1Rd) =
+            Glicko.calcPlayerState (Glicko.Rating 1500) (Glicko.RD 350) (Glicko.RD 50) 100 date p1Records
+
+        let (p2Rating, p2Rd) =
+            Glicko.calcPlayerState (Glicko.Rating 1500) (Glicko.RD 350) (Glicko.RD 50) 100 date p2Records
+
+        let p1RecordsNew =
+            p1Records
+            |> Map.ofList
+            |> Map.change
+                date
+                (function
+                | None -> [ (player2, p2Rating, p2Rd, outcome) ] |> Some
+                | Some x -> (player2, p2Rating, p2Rd, outcome) :: x |> Some)
+            |> Map.toList
+            |> List.sortByDescending (fun (x, _) -> x)
+
+        let p2RecordsNew =
+            p2Records
+            |> Map.ofList
+            |> Map.change
+                date
+                (function
+                | None ->
+                    [ (player1, p1Rating, p1Rd, Glicko.Outcome.invert outcome) ]
+                    |> Some
+                | Some x ->
+                    (player1, p1Rating, p1Rd, Glicko.Outcome.invert outcome)
+                    :: x
+                    |> Some)
+            |> Map.toList
+            |> List.sortByDescending (fun (x, _) -> x)
+
+        Map.add player1 p1RecordsNew tournament
+        |> Map.add player2 p2RecordsNew
+
+    let expected =
+        [ "Alice",
+          [ LocalDate(2021, 9, 29), [ "Bob", Glicko.Rating 1338, Glicko.RD 292, Glicko.Outcome.Won ]
+            LocalDate(2021, 9, 28), [ "Bob", Glicko.Rating 1500, Glicko.RD 350, Glicko.Outcome.Won ] ]
+          "Bob",
+          [ LocalDate(2021, 9, 29), [ "Alice", Glicko.Rating 1662, Glicko.RD 292, Glicko.Outcome.Lost ]
+            LocalDate(2021, 9, 28), [ "Alice", Glicko.Rating 1500, Glicko.RD 350, Glicko.Outcome.Lost ] ] ]
+        |> Map.ofList
+
+    add "Alice" "Bob" (LocalDate(2021, 9, 28)) Glicko.Outcome.Won tournament
+    |> add "Alice" "Bob" (LocalDate(2021, 9, 29)) Glicko.Outcome.Won
+    |> should equal expected

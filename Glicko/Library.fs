@@ -15,7 +15,6 @@ module Glicko =
     let square = pow >< 2.
 
     type RD = RD of int
-    type RatingPeriod = RatingPeriod of int
     type Rating = Rating of int
 
     type Outcome =
@@ -23,16 +22,23 @@ module Glicko =
         | Draw
         | Lost
 
-    let c (RD initial) (RD typical) (RatingPeriod ratingPeriodsToReturnToInitial) =
+    module Outcome =
+        let invert =
+            function
+            | Won -> Lost
+            | Draw -> Draw
+            | Lost -> Won
+
+    let c (RD initial) (RD typical) daysToReturnToInitialRd =
         (square (float initial) - square (float typical))
-        / (float ratingPeriodsToReturnToInitial)
+        / (float daysToReturnToInitialRd)
         |> sqrt
 
-    let updateRD (RD newPlayerRD) typicalRD timeToBaseUncertainty (RatingPeriod t) (RD rd0) =
+    let updateRD (RD newPlayerRD) typicalRD daysToReturnToInitialRd days (RD rd0) =
         let c =
-            c (RD newPlayerRD) typicalRD timeToBaseUncertainty
+            c (RD newPlayerRD) typicalRD daysToReturnToInitialRd
 
-        [ sqrt (square (float rd0) + square c * (float t))
+        [ sqrt (square (float rd0) + square c * (float days))
           (float newPlayerRD) ]
         |> List.min
         |> roundOffToInt
@@ -132,12 +138,19 @@ module Glicko =
 
         (lower, upper)
 
-    let calcPlayerState newPlayerRating newPlayerRd (date: LocalDate) records =
-        let rec calcPlayerState' r0 rd0 records =
+    let calcPlayerState newPlayerRating newPlayerRd typicalRd daysToReturnToInitialRd (date: LocalDate) records =
+        let rec calcPlayerState' r0 rd0 lastPlayed records =
             match records with
-            | (_, games) :: tail -> calcPlayerState' (newR r0 rd0 games) (newRd r0 rd0 games) tail
-            | [] -> (r0, rd0)
+            | (datePlayed, games) :: tail -> calcPlayerState' (newR r0 rd0 games) (newRd r0 rd0 games) datePlayed tail
+            | [] -> (r0, rd0, lastPlayed)
 
         List.skipWhile (fun (d, _) -> d >= date) records
         |> List.rev
-        |> calcPlayerState' newPlayerRating newPlayerRd
+        |> calcPlayerState' newPlayerRating newPlayerRd date
+        |> fun (rating, rd, lastPlayed) ->
+            let timeSinceLastPlayed = date - lastPlayed
+
+            let degradedRd =
+                updateRD newPlayerRd typicalRd daysToReturnToInitialRd (timeSinceLastPlayed.Days) rd
+
+            rating, degradedRd
