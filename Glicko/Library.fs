@@ -1,20 +1,55 @@
 namespace Glicko
 
 module Glicko =
+    module Infrastructure =
+        open System
+
+        let (><) f x y = f y x // flip operator
+
+        let roundOff (x: float) =
+            Math.Round(x, MidpointRounding.AwayFromZero)
+
+        let roundOffToInt = roundOff >> int
+        let pow (x: float) (y: float) = Math.Pow(x, y)
+        let square = pow >< 2.
+
+    module Domain =
+        open System
+        open Infrastructure
+
+        let q = Math.Log(10.) / 400.
+
+        type RD = RD of int
+
+        module RD =
+            let c (RD newPlayerRd) (RD typicalRd) daysToReturnToInitialRd =
+                (square (float newPlayerRd)
+                 - square (float typicalRd))
+                / (float daysToReturnToInitialRd)
+                |> sqrt
+
+            let updateRd c (RD newPlayerRd) days (RD currentRd) =
+                [ sqrt (square (float currentRd) + square c * (float days))
+                  (float newPlayerRd) ]
+                |> List.min
+                |> roundOffToInt
+                |> RD
+
+            let g (RD rd) =
+                let piSquared = square Math.PI
+                let rdSquared = square (float rd)
+                let qSquared = square q
+
+                1.
+                / sqrt (1. + (3. * qSquared * rdSquared / piSquared))
+
     open System
 
     open NodaTime
 
-    let (><) f x y = f y x // flip operator
+    open Infrastructure
+    open Domain
 
-    let roundOff (x: float) =
-        Math.Round(x, MidpointRounding.AwayFromZero)
-
-    let roundOffToInt = roundOff >> int
-    let pow (x: float) (y: float) = Math.Pow(x, y)
-    let square = pow >< 2.
-
-    type RD = RD of int
     type Rating = Rating of int
 
     type Outcome =
@@ -29,44 +64,19 @@ module Glicko =
             | Draw -> Draw
             | Lost -> Won
 
-    let c (RD initial) (RD typical) daysToReturnToInitialRd =
-        (square (float initial) - square (float typical))
-        / (float daysToReturnToInitialRd)
-        |> sqrt
-
-    let updateRD (RD newPlayerRD) typicalRD daysToReturnToInitialRd days (RD rd0) =
-        let c =
-            c (RD newPlayerRD) typicalRD daysToReturnToInitialRd
-
-        [ sqrt (square (float rd0) + square c * (float days))
-          (float newPlayerRD) ]
-        |> List.min
-        |> roundOffToInt
-        |> RD
-
-    let q = Math.Log(10.) / 400.
-
-    let g (RD rd) =
-        let piSquared = square Math.PI
-        let rdSquared = square (float rd)
-        let qSquared = square q
-
-        1.
-        / sqrt (1. + (3. * qSquared * rdSquared / piSquared))
-
     let e (Rating r) (Rating rj) rdj =
         let ratingDifference = (float r) - (float rj)
 
         1.
         / (1.
-           + pow 10. ((0. - (g rdj)) * ratingDifference / 400.))
+           + pow 10. ((0. - (RD.g rdj)) * ratingDifference / 400.))
 
     let dSquared r games =
         let qSquared = square q
 
         let sigma r =
             let sigma' r (_, rj, rdj, _) =
-                let gRdj = g rdj |> square
+                let gRdj = RD.g rdj |> square
                 let e' = e r rj rdj
                 gRdj * e' * (1. - e')
 
@@ -87,7 +97,7 @@ module Glicko =
                     | Draw -> 0.5
                     | Lost -> 0.
 
-                g rdj * (sj' - (e r rj rdj))
+                RD.g rdj * (sj' - (e r rj rdj))
 
             List.map (fun opponent -> sigma' r opponent)
             >> List.sum
@@ -116,7 +126,7 @@ module Glicko =
             |> sqrt
             |> roundOffToInt
             |> RD
-            |> g
+            |> RD.g
 
         1.
         / (1. + (pow 10. -(g' * (r1 - r2 |> float) / 400.)))
@@ -138,7 +148,7 @@ module Glicko =
 
         (lower, upper)
 
-    let calcPlayerState newPlayerRating newPlayerRd typicalRd daysToReturnToInitialRd (date: LocalDate) records =
+    let calcPlayerState updateRd newPlayerRating newPlayerRd (date: LocalDate) records =
         let rec calcPlayerState' r0 rd0 lastPlayed records =
             match records with
             | (datePlayed, games) :: tail -> calcPlayerState' (newR r0 rd0 games) (newRd r0 rd0 games) datePlayed tail
@@ -150,7 +160,6 @@ module Glicko =
         |> fun (rating, rd, lastPlayed) ->
             let timeSinceLastPlayed = date - lastPlayed
 
-            let degradedRd =
-                updateRD newPlayerRd typicalRd daysToReturnToInitialRd (timeSinceLastPlayed.Days) rd
+            let degradedRd = updateRd (timeSinceLastPlayed.Days) rd
 
             rating, degradedRd
